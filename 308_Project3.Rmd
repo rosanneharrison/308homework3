@@ -205,7 +205,7 @@ d
 #regex rule1 --> Multiple Capitalized Words that end with company indicator word
 Companystring = str_extract_all(allfiles, "[A-Z][a-z]+(?=\\s[A-Z])(?:\\s[A-Z][a-z]+)+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)") 
 
-#regex rule2 --> 
+#regex rule2 --> single Capitalized Word ends with indicator word
 Companystring2 = str_extract_all(allfiles, "\\s[a-z]+\\s[A-Z][a-z]+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)")
 Companystring2[[1]] = str_trim(Companystring2[[1]]) #remove leading space
 Companystring2[[1]] = removeWords(Companystring2[[1]], "[a-z]+\\s") #remove first word
@@ -219,14 +219,6 @@ Companystring3[[1]] = removeWords(Companystring3[[1]], "[a-z]+\\s") #remove firs
 Companystring4 = str_extract_all(allfiles, "\\s[a-z]+\\s[A-Z]+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)")
 Companystring4[[1]] = str_trim(Companystring4[[1]]) #remove leading space
 Companystring4[[1]] = removeWords(Companystring4[[1]], "[a-z]+\\s") #remove first word
-
-#regex rule5 --> ComPany with random uppercase letter in the middle (no indicator)
-Companystring5 = str_extract_all(allfiles, "[a-z]+\\s[A-Z][a-z]+[A-Z][a-z]+\\s[a-z]")
-Companystring5[[1]] = str_trim(Companystring5[[1]]) #remove leading space
-Companystring5[[1]] = removeWords(Companystring5[[1]], "[a-z]+\\s") #remove first word
-Companystring5[[1]] = removeWords(Companystring5[[1]], "\\s[a-z]+") #remove last word
-Companystring5[[1]] = unique(Companystring5[[1]])
-###### not including because too many false positives ###############
 
 #convert Companystring to data frame
 m11 <- matrix(Companystring[[1]], ncol=1)
