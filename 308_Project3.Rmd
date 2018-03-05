@@ -1,0 +1,644 @@
+---
+title: "308_Project3"
+output: html_document
+---
+
+```{r}
+#install packages
+install.packages("slam")
+library(slam)
+install.packages("tm")
+library(tm)
+install.packages("SnowballC")
+library(SnowballC)
+install.packages("stringr")
+library(stringr)
+install.packages("hash")
+library(hash)
+install.packages("plyr")
+library(plyr)
+
+#load files into R Corpus
+directory = dir.create(file.path("308_P3Files/"), showWarnings = TRUE)
+file.exists("308_P3Files/")
+files <- DirSource(directory = "308_P3Files/")
+allfiles <- VCorpus(files, readerControl = list(language = "en"))
+allfiles_punc <- VCorpus(files, readerControl = list(language = "en"))
+
+#PRE-PROCESSING:
+#sentence segmentation: identify sentences ending using binary classifier ??????????????????
+
+# preprocess text by converting to lowercase and removing punctuation/numbers/stop words
+allfiles<-tm_map(allfiles,removePunctuation)
+allfiles<-tm_map(allfiles,removeWords,stopwords('english'))
+allfiles_punc<-tm_map(allfiles_punc,removeWords,stopwords('english'))
+
+
+#stemming --> SKIP BECAUSE ITS MESSING UP NAMES
+#allfiles<-tm_map(allfiles,stemDocument,language="english")
+
+#CREATE DICTIONARY with already identified CEOs/Companies/Percentages
+#read files into data frames
+ceos <- read.csv("308_P3Dictionaries/ceo.csv", header = FALSE)
+ceos = unique(ceos)
+companies <- read.csv("308_P3Dictionaries/companies.csv", header = FALSE)
+companies = unique(companies)
+percentages <- read.csv("308_P3Dictionaries/percentage.csv", header = FALSE)
+percentages = unique(percentages)
+
+#make hash sets
+#hashceos <- hash()
+#.set(hashceos, ceos)
+#hashcompanies <- hash()
+#.set(hashcompanies, companies)
+#hashpercentages <- hash()
+#.set(hashpercentages, percentages)
+```
+
+
+```{r}
+#ACTUAL ANALYSIS: CEOS
+#Create rules to identify words/numbers needed --> REGULAR EXPRESSIONS
+
+#TEST
+x = "The person is CEO John John CEO of Apple also CEO Mark Smith."
+d = str_extract_all(x, "CEO\\s[A-Z][a-z]+\\s[A-Z][a-z]+")
+d
+
+#regex rule1 --> Uppercase Uppercase CEO 
+CEOstring = str_extract_all(allfiles, "[A-Z][a-z]+\\s[A-Z][a-z]+\\sCEO") #mostly companies, not names
+CEOstring[[1]] = removeWords(CEOstring[[1]], " CEO") #remove the word CEO
+
+#regex rule2 --> CEO Uppercase Uppercase 
+CEOstring2 = str_extract_all(allfiles, "CEO\\s[A-Z][a-z]+\\s[A-Z][a-z]+") #VERY good, mostly names
+CEOstring2[[1]] = removeWords(CEOstring2[[1]], "CEO") #remove the word CEO
+CEOstring2[[1]] = trimws(CEOstring2[[1]], which = c("left"))
+
+#regex rule3 --> lowercase Uppercase CEO
+CEOstring3 = str_extract_all(allfiles, "\\s[a-z]+\\s[A-Z][a-z]+\\sCEO")
+CEOstring3[[1]] = removeWords(CEOstring3[[1]], " CEO") #remove the word CEO
+CEOstring3[[1]] = str_trim(CEOstring3[[1]]) #remove leading space
+CEOstring3[[1]] = removeWords(CEOstring3[[1]], "[a-z]+\\s") #remove first word
+
+#regex rule4 --> CEO Uppercase lowercase
+CEOstring4 = str_extract_all(allfiles, "CEO\\s[A-Z][a-z]+\\s[a-z]+")
+CEOstring4[[1]] = removeWords(CEOstring4[[1]], "CEO ") #remove the word CEO
+CEOstring4[[1]] = removeWords(CEOstring4[[1]], "\\s[a-z]+") #remove last word
+
+#convert CEOstring2 to data frame
+m1 <- matrix(CEOstring2[[1]], ncol=1)
+d1 <- as.data.frame(m1, stringsAsFactors=FALSE)
+colnames(d1) <- "Possible_CEO"
+d1 = ddply(d1,.(Possible_CEO),nrow)
+colnames(d1)[2] <- "NumAppear1"
+#add column of 1's because first rule is TRUE for all these names
+d1$CEO_before_2_caps = 1
+d1$Possible_CEO = str_trim(d1$Possible_CEO)
+
+#convert CEOstring to data frame
+m2 <- matrix(CEOstring[[1]], ncol=1)
+d2 <- as.data.frame(m2, stringsAsFactors=FALSE)
+colnames(d2) <- "Possible_CEO"
+d2 = ddply(d2,.(Possible_CEO),nrow)
+colnames(d2)[2] <- "NumAppear2"
+d2$CEO_after_2_caps = 1
+
+#merge (outer join) d1 and d2
+CEO_FEATURES = merge(d1, d2, by = c("Possible_CEO"), all = TRUE)
+CEO_FEATURES = ddply(CEO_FEATURES, .(Possible_CEO, CEO_before_2_caps, CEO_after_2_caps), summarize, NumAppear1 = sum(NumAppear1), NumAppear2 = sum(NumAppear2))
+
+#convert CEOstring3 to data frame
+m3 <- matrix(CEOstring3[[1]], ncol=1)
+d3 <- as.data.frame(m3, stringsAsFactors=FALSE)
+colnames(d3) <- "Possible_CEO"
+d3 = ddply(d3,.(Possible_CEO),nrow)
+colnames(d3)[2] <- "NumAppear3"
+d3$CEO_after_1_caps = 1
+
+CEO_FEATURES = merge(CEO_FEATURES, d3, by = "Possible_CEO", all = TRUE)
+CEO_FEATURES = ddply(CEO_FEATURES, .(Possible_CEO, CEO_before_2_caps, CEO_after_2_caps, CEO_after_1_caps), summarize, NumAppear1 = sum(NumAppear1), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3))
+
+#convert CEOstring4 to data frame
+m4 <- matrix(CEOstring4[[1]], ncol=1)
+d4 <- as.data.frame(m4, stringsAsFactors=FALSE)
+colnames(d4) <- "Possible_CEO"
+d4 = ddply(d4,.(Possible_CEO),nrow)
+colnames(d4)[2] <- "NumAppear4"
+d4$CEO_before_1_caps = 1
+
+CEO_FEATURES = merge(CEO_FEATURES, d4, by = "Possible_CEO", all = TRUE)
+CEO_FEATURES = ddply(CEO_FEATURES, .(Possible_CEO, CEO_before_2_caps, CEO_after_2_caps, CEO_after_1_caps, CEO_before_1_caps), summarize, NumAppear1 = sum(NumAppear1), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4))
+
+#merge LABELS onto feature table
+colnames(ceos) <- "Possible_CEO"
+ceos$label = "CEO"
+CEO_FEATURES = merge(CEO_FEATURES, ceos, by = "Possible_CEO", all = TRUE)
+
+#make 1 counts of appearences into categorical variables
+CEO_FEATURES$NumAppear1_1 <- ifelse(CEO_FEATURES$NumAppear1>=1, 1, 0)
+CEO_FEATURES$NumAppear1_2 <- ifelse(CEO_FEATURES$NumAppear1>=2, 1, 0)
+CEO_FEATURES$NumAppear1_5 <- ifelse(CEO_FEATURES$NumAppear1>=5, 1, 0)
+CEO_FEATURES$NumAppear1_10 <- ifelse(CEO_FEATURES$NumAppear1>=10, 1, 0)
+CEO_FEATURES$NumAppear1_15 <- ifelse(CEO_FEATURES$NumAppear1>=15, 1, 0)
+CEO_FEATURES$NumAppear1_20 <- ifelse(CEO_FEATURES$NumAppear1>=20, 1, 0)
+CEO_FEATURES$NumAppear1_25 <- ifelse(CEO_FEATURES$NumAppear1>=25, 1, 0)
+
+#make 2 counts of appearences into categorical variables
+CEO_FEATURES$NumAppear2_1 <- ifelse(CEO_FEATURES$NumAppear2>=1, 1, 0)
+CEO_FEATURES$NumAppear2_2 <- ifelse(CEO_FEATURES$NumAppear2>=2, 1, 0)
+CEO_FEATURES$NumAppear2_5 <- ifelse(CEO_FEATURES$NumAppear2>=5, 1, 0)
+CEO_FEATURES$NumAppear2_10 <- ifelse(CEO_FEATURES$NumAppear2>=10, 1, 0)
+CEO_FEATURES$NumAppear2_15 <- ifelse(CEO_FEATURES$NumAppear2>=15, 1, 0)
+CEO_FEATURES$NumAppear2_20 <- ifelse(CEO_FEATURES$NumAppear2>=20, 1, 0)
+
+#make 3 counts of appearences into categorical variables
+CEO_FEATURES$NumAppear3_1 <- ifelse(CEO_FEATURES$NumAppear3>=1, 1, 0)
+
+#make 4 counts of appearences into categorical variables
+CEO_FEATURES$NumAppear4_1 <- ifelse(CEO_FEATURES$NumAppear4>=1, 1, 0)
+CEO_FEATURES$NumAppear4_2 <- ifelse(CEO_FEATURES$NumAppear4>=2, 1, 0)
+CEO_FEATURES$NumAppear4_5 <- ifelse(CEO_FEATURES$NumAppear4>=5, 1, 0)
+CEO_FEATURES$NumAppear4_10 <- ifelse(CEO_FEATURES$NumAppear4>=10, 1, 0)
+CEO_FEATURES$NumAppear4_15 <- ifelse(CEO_FEATURES$NumAppear4>=15, 1, 0)
+
+#drop count columns (not useable for Logistic Regression)
+CEO_FEATURES <- CEO_FEATURES[ -c(6:9) ]
+
+#LOGISTIC REGRESSION!!!!
+CEO_FEATURES[is.na(CEO_FEATURES)] <- 0
+
+CEOInd <- rep("No",2183)
+CEOInd[CEO_FEATURES$label == "CEO"] <- "Yes"
+CEOInd = as.factor(CEOInd)
+CEO_FEATURES$label = CEOInd
+
+fit.CEO = glm(label ~ .-Possible_CEO, data = CEO_FEATURES, family = binomial)
+summary(fit.CEO)
+
+CEO.probs = predict(fit.CEO, type = "response")
+hist(CEO.probs)
+
+CEO.predict = rep("No", 2183)
+CEO.predict[CEO.probs > 0.5] = "Yes"
+table(CEO.predict, CEO_FEATURES$label)
+mean(CEO.predict == CEO_FEATURES$label) #87% accuracy!!!!
+
+CEO_FEATURES$prediction = CEO.predict
+finalCEOs = CEO_FEATURES[!(CEO_FEATURES$prediction == "No"),]
+finalCEOs = finalCEOs$Possible_CEO
+
+#two capitalized words surrounded by lowercase -----> this doesn't work because way too many options (42k) - need to have ratio of positives-negatives be relatively close
+```
+
+
+```{r}
+#ACTUAL ANALYSIS: COMPANY NAMES
+#list of company indicator words
+#\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany
+
+#TEST
+x = "The company is The Comp-any of BlackBerry Ltd also Wal-mart Inc and Wal-Mart Inc"
+d = str_extract_all(x, "[A-Z][a-z]+(?=\\s[A-Z])(?:\\s[A-Z][a-z]+)+(?=\\sLtd|\\sInc)(?:\\sLtd|\\sInc)")
+d = str_extract_all(x, "\\s[a-z]+\\s[A-Z][a-z]+[A-z][a-z]+(?=\\sLtd|\\sInc)(?:\\sLtd|\\sInc)")
+d
+
+#regex rule1 --> Multiple Capitalized Words that end with company indicator word
+Companystring = str_extract_all(allfiles, "[A-Z][a-z]+(?=\\s[A-Z])(?:\\s[A-Z][a-z]+)+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)") 
+
+#regex rule2 --> 
+Companystring2 = str_extract_all(allfiles, "\\s[a-z]+\\s[A-Z][a-z]+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)")
+Companystring2[[1]] = str_trim(Companystring2[[1]]) #remove leading space
+Companystring2[[1]] = removeWords(Companystring2[[1]], "[a-z]+\\s") #remove first word
+
+#regex rule3 --> ComPany with random uppercase letter in the middle + indicator
+Companystring3 = str_extract_all(allfiles, "\\s[a-z]+\\s[A-Z][a-z]+[A-Z][a-z]+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)")
+Companystring3[[1]] = str_trim(Companystring3[[1]]) #remove leading space
+Companystring3[[1]] = removeWords(Companystring3[[1]], "[a-z]+\\s") #remove first word
+
+#regex rule4 --> ALL CAPS company (ie GM)
+Companystring4 = str_extract_all(allfiles, "\\s[a-z]+\\s[A-Z]+(?=\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)(?:\\sCorporation|\\sCorp|\\sInc|\\sCo|\\sLtd|\\sLLC|\\sGroup|\\sFinancial|\\sManagement|\\sCapital|\\sBank|\\sLimited|\\sAssociation|\\sEntertainment|\\sSoftware|\\sAdvisors|\\sHoldings|\\sLabs|\\sLab|\\sCompany)")
+Companystring4[[1]] = str_trim(Companystring4[[1]]) #remove leading space
+Companystring4[[1]] = removeWords(Companystring4[[1]], "[a-z]+\\s") #remove first word
+
+#regex rule5 --> ComPany with random uppercase letter in the middle (no indicator)
+Companystring5 = str_extract_all(allfiles, "[a-z]+\\s[A-Z][a-z]+[A-Z][a-z]+\\s[a-z]")
+Companystring5[[1]] = str_trim(Companystring5[[1]]) #remove leading space
+Companystring5[[1]] = removeWords(Companystring5[[1]], "[a-z]+\\s") #remove first word
+Companystring5[[1]] = removeWords(Companystring5[[1]], "\\s[a-z]+") #remove last word
+Companystring5[[1]] = unique(Companystring5[[1]])
+###### not including because too many false positives ###############
+
+#convert Companystring to data frame
+m11 <- matrix(Companystring[[1]], ncol=1)
+d11 <- as.data.frame(m11, stringsAsFactors=FALSE)
+colnames(d11) <- "Possible_Company"
+d11 = ddply(d11,.(Possible_Company),nrow)
+colnames(d11)[2] <- "NumAppear1"
+d11$Multi_caps_indicator_word = 1
+
+#convert Companystring2 to data frame
+m22 <- matrix(Companystring2[[1]], ncol=1)
+d22 <- as.data.frame(m22, stringsAsFactors=FALSE)
+colnames(d22) <- "Possible_Company"
+d22 = ddply(d22,.(Possible_Company),nrow)
+colnames(d22)[2] <- "NumAppear2"
+d22$Single_caps_indicator_word = 1
+
+#convert Companystring3 to data frame
+m33 <- matrix(Companystring3[[1]], ncol=1)
+d33 <- as.data.frame(m33, stringsAsFactors=FALSE)
+colnames(d33) <- "Possible_Company"
+d33 = ddply(d33,.(Possible_Company),nrow)
+colnames(d33)[2] <- "NumAppear3"
+d33$Single_caps_in_middle_indicator_word = 1
+
+#convert Companystring4 to data frame
+m44 <- matrix(Companystring4[[1]], ncol=1)
+d44 <- as.data.frame(m44, stringsAsFactors=FALSE)
+colnames(d44) <- "Possible_Company"
+d44 = ddply(d44,.(Possible_Company),nrow)
+colnames(d44)[2] <- "NumAppear4"
+d44$Single_ALL_caps_indicator_word = 1
+
+#merge (outer join) d11 and d22
+COMPANY_FEATURES = merge(d11, d22, by = "Possible_Company", all = TRUE)
+COMPANY_FEATURES = ddply(COMPANY_FEATURES, .(Possible_Company, Multi_caps_indicator_word, Single_caps_indicator_word), summarize, NumAppear1 = sum(NumAppear1), NumAppear2 = sum(NumAppear2))
+#merge (outer join) d33
+COMPANY_FEATURES = merge(COMPANY_FEATURES, d33, by = "Possible_Company", all = TRUE)
+COMPANY_FEATURES = ddply(COMPANY_FEATURES, .(Possible_Company, Multi_caps_indicator_word, Single_caps_indicator_word, Single_caps_in_middle_indicator_word), summarize, NumAppear1 = sum(NumAppear1), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3))
+#merge (outer join) d44
+COMPANY_FEATURES = merge(COMPANY_FEATURES, d44, by = "Possible_Company", all = TRUE)
+COMPANY_FEATURES = ddply(COMPANY_FEATURES, .(Possible_Company, Multi_caps_indicator_word, Single_caps_indicator_word, Single_caps_in_middle_indicator_word, Single_ALL_caps_indicator_word), summarize, NumAppear1 = sum(NumAppear1), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4))
+
+
+#merge LABELS onto feature table
+colnames(companies) <- "Possible_Company"
+companies$label = "Company"
+COMPANY_FEATURES = merge(COMPANY_FEATURES, companies, by = "Possible_Company", all = TRUE)
+
+
+#make feature for Logistic Regression
+
+#make 1 counts of appearences into categorical variables
+COMPANY_FEATURES$NumAppear1_1 <- ifelse(COMPANY_FEATURES$NumAppear1>=1, 1, 0)
+COMPANY_FEATURES$NumAppear1_2 <- ifelse(COMPANY_FEATURES$NumAppear1>=2, 1, 0)
+COMPANY_FEATURES$NumAppear1_5 <- ifelse(COMPANY_FEATURES$NumAppear1>=5, 1, 0)
+COMPANY_FEATURES$NumAppear1_10 <- ifelse(COMPANY_FEATURES$NumAppear1>=10, 1, 0)
+COMPANY_FEATURES$NumAppear1_15 <- ifelse(COMPANY_FEATURES$NumAppear1>=15, 1, 0)
+COMPANY_FEATURES$NumAppear1_20 <- ifelse(COMPANY_FEATURES$NumAppear1>=20, 1, 0)
+COMPANY_FEATURES$NumAppear1_25 <- ifelse(COMPANY_FEATURES$NumAppear1>=25, 1, 0)
+COMPANY_FEATURES$NumAppear1_30 <- ifelse(COMPANY_FEATURES$NumAppear1>=30, 1, 0)
+COMPANY_FEATURES$NumAppear1_50 <- ifelse(COMPANY_FEATURES$NumAppear1>=50, 1, 0)
+COMPANY_FEATURES$NumAppear1_100 <- ifelse(COMPANY_FEATURES$NumAppear1>=100, 1, 0)
+
+#make 2 counts of appearences into categorical variables
+COMPANY_FEATURES$NumAppear2_1 <- ifelse(COMPANY_FEATURES$NumAppear2>=1, 1, 0)
+COMPANY_FEATURES$NumAppear2_2 <- ifelse(COMPANY_FEATURES$NumAppear2>=2, 1, 0)
+COMPANY_FEATURES$NumAppear2_5 <- ifelse(COMPANY_FEATURES$NumAppear2>=5, 1, 0)
+COMPANY_FEATURES$NumAppear2_10 <- ifelse(COMPANY_FEATURES$NumAppear2>=10, 1, 0)
+COMPANY_FEATURES$NumAppear2_15 <- ifelse(COMPANY_FEATURES$NumAppear2>=15, 1, 0)
+COMPANY_FEATURES$NumAppear2_20 <- ifelse(COMPANY_FEATURES$NumAppear2>=20, 1, 0)
+COMPANY_FEATURES$NumAppear2_25 <- ifelse(COMPANY_FEATURES$NumAppear2>=25, 1, 0)
+COMPANY_FEATURES$NumAppear2_30 <- ifelse(COMPANY_FEATURES$NumAppear2>=30, 1, 0)
+COMPANY_FEATURES$NumAppear2_50 <- ifelse(COMPANY_FEATURES$NumAppear2>=50, 1, 0)
+COMPANY_FEATURES$NumAppear2_100 <- ifelse(COMPANY_FEATURES$NumAppear2>=100, 1, 0)
+
+#make 3 counts of appearences into categorical variables
+COMPANY_FEATURES$NumAppear3_1 <- ifelse(COMPANY_FEATURES$NumAppear3>=1, 1, 0)
+COMPANY_FEATURES$NumAppear3_2 <- ifelse(COMPANY_FEATURES$NumAppear3>=2, 1, 0)
+COMPANY_FEATURES$NumAppear3_5 <- ifelse(COMPANY_FEATURES$NumAppear3>=5, 1, 0)
+COMPANY_FEATURES$NumAppear3_10 <- ifelse(COMPANY_FEATURES$NumAppear3>=10, 1, 0)
+COMPANY_FEATURES$NumAppear3_15 <- ifelse(COMPANY_FEATURES$NumAppear3>=15, 1, 0)
+COMPANY_FEATURES$NumAppear3_20 <- ifelse(COMPANY_FEATURES$NumAppear3>=20, 1, 0)
+
+#make 4 counts of appearences into categorical variables
+COMPANY_FEATURES$NumAppear4_1 <- ifelse(COMPANY_FEATURES$NumAppear4>=1, 1, 0)
+COMPANY_FEATURES$NumAppear4_2 <- ifelse(COMPANY_FEATURES$NumAppear4>=2, 1, 0)
+COMPANY_FEATURES$NumAppear4_5 <- ifelse(COMPANY_FEATURES$NumAppear4>=5, 1, 0)
+COMPANY_FEATURES$NumAppear4_10 <- ifelse(COMPANY_FEATURES$NumAppear4>=10, 1, 0)
+COMPANY_FEATURES$NumAppear4_15 <- ifelse(COMPANY_FEATURES$NumAppear4>=15, 1, 0)
+COMPANY_FEATURES$NumAppear4_20 <- ifelse(COMPANY_FEATURES$NumAppear4>=20, 1, 0)
+COMPANY_FEATURES$NumAppear4_25 <- ifelse(COMPANY_FEATURES$NumAppear4>=25, 1, 0)
+COMPANY_FEATURES$NumAppear4_30 <- ifelse(COMPANY_FEATURES$NumAppear4>=30, 1, 0)
+COMPANY_FEATURES$NumAppear4_50 <- ifelse(COMPANY_FEATURES$NumAppear4>=50, 1, 0)
+COMPANY_FEATURES$NumAppear4_100 <- ifelse(COMPANY_FEATURES$NumAppear4>=100, 1, 0)
+
+#create other categorical variables
+#number of words in the name
+COMPANY_FEATURES$num_words = str_count(COMPANY_FEATURES$Possible_Company, "\\w+")
+COMPANY_FEATURES$numwords_3 <- ifelse(COMPANY_FEATURES$num_words<=3, 1, 0)
+COMPANY_FEATURES$numwords_5 <- ifelse(COMPANY_FEATURES$num_words<=5, 1, 0)
+COMPANY_FEATURES$numwords_7 <- ifelse(COMPANY_FEATURES$num_words<=7, 1, 0)
+COMPANY_FEATURES$numwords_9 <- ifelse(COMPANY_FEATURES$num_words<=9, 1, 0)
+COMPANY_FEATURES$numwords_BIG <- ifelse(COMPANY_FEATURES$num_words>=10, 1, 0)
+
+#would ideally want to look for dupulicate words in the name
+#also could try to combine companies with similar names (like if an S is left off, ending is different, etc)
+
+#drop count columns (not useable for Logistic Regression)
+COMPANY_FEATURES <- COMPANY_FEATURES[ -c(6:9) ]
+COMPANY_FEATURES <- COMPANY_FEATURES[ -c(43) ]
+
+#LOGISTIC REGRESSION!!!!
+COMPANY_FEATURES[is.na(COMPANY_FEATURES)] <- 0
+
+CompanyInd <- rep("No",12349)
+CompanyInd[COMPANY_FEATURES$label == "Company"] <- "Yes"
+CompanyInd = as.factor(CompanyInd)
+COMPANY_FEATURES$label = CompanyInd
+
+fit.Company = glm(label ~ .-Possible_Company, data = COMPANY_FEATURES, family = binomial)
+summary(fit.Company)
+
+Company.probs = predict(fit.Company, type = "response")
+hist(Company.probs)
+
+#select cutoff based on performance (number of correct "Yes") and accuracy
+Company.predict = rep("No", 12349)
+Company.predict[Company.probs > 0.25] = "Yes"
+table(Company.predict, COMPANY_FEATURES$label)
+mean(Company.predict == COMPANY_FEATURES$label) #90% accurate with 0.25 cutoff
+
+COMPANY_FEATURES$prediction = Company.predict
+finalCompanies = COMPANY_FEATURES[!(COMPANY_FEATURES$prediction == "No"),]
+finalCompanies = finalCompanies$Possible_Company
+
+```
+
+
+```{r}
+#ACTUAL ANALYSIS: PERCENTAGES
+#use version of "allfiles" WITH punctuation
+
+#TEST
+x = "The stock is 6% and sixty five percent sixty percent and 4 %"
+d = str_extract_all(x, "\\s[0-9]+%\\s")
+d
+
+#regex rule1 --> digits%
+Percentstring = str_extract_all(allfiles_punc, "\\s[0-9]+%\\s") 
+Percentstring[[1]] = str_trim(Percentstring[[1]]) #remove spaces
+
+#regex rule2 --> digits %
+Percentstring2 = str_extract_all(allfiles_punc, "\\s[0-9]+\\s%\\s") 
+Percentstring2[[1]] = str_trim(Percentstring2[[1]]) #remove spaces
+
+#regex rule3 --> number(word) percent
+Percentstring3 = str_extract_all(allfiles_punc, "\\s[a-z]+\\spercent") 
+#Percentstring3[[1]] = addWords(Percentstring3[[1]], " percent") #remove spaces
+Percentstring3[[1]] = str_trim(Percentstring3[[1]]) #remove spaces
+
+#regex rule4 --> number-number percent
+Percentstring4 = str_extract_all(allfiles_punc, "\\s[a-z]+-[a-z]+\\spercent") 
+#Percentstring3[[1]] = addWords(Percentstring3[[1]], " percent") #remove spaces
+Percentstring3[[1]] = str_trim(Percentstring3[[1]]) #remove spaces
+
+#regex rule5 --> number with decimal percent
+Percentstring5 = str_extract_all(allfiles_punc, "\\s[0-9]+.[0-9]+\\spercent") 
+Percentstring5[[1]] = str_trim(Percentstring5[[1]]) #remove spaces
+
+#regex rule6 --> number with decimal %
+Percentstring6 = str_extract_all(allfiles_punc, "\\s[0-9]+.[0-9]+%") 
+Percentstring6[[1]] = str_trim(Percentstring6[[1]]) #remove spaces
+
+#regex rule7 --> negative number with decimal %
+Percentstring7 = str_extract_all(allfiles_punc, "\\s-[0-9]+.[0-9]+%") 
+Percentstring7[[1]] = str_trim(Percentstring7[[1]]) #remove spaces
+
+#regex rule8 --> negative number %
+Percentstring8 = str_extract_all(allfiles_punc, "\\s-[0-9]+%") 
+Percentstring8[[1]] = str_trim(Percentstring8[[1]]) #remove spaces
+
+#regex rule9 --> digit word percent
+Percentstring9 = str_extract_all(allfiles_punc, "\\s[0-9]+\\spercent") 
+Percentstring9[[1]] = str_trim(Percentstring9[[1]]) #remove spaces
+
+#regex rule10 --> digit with decimal word percent
+Percentstring10 = str_extract_all(allfiles_punc, "\\s[0-9]+.[0-9]+\\spercent") 
+Percentstring10[[1]] = str_trim(Percentstring10[[1]]) #remove spaces
+
+#convert percentstring to data frame
+m111 <- matrix(Percentstring[[1]], ncol=1)
+d111 <- as.data.frame(m111, stringsAsFactors=FALSE)
+colnames(d111) <- "Possible_Percent"
+d111 = ddply(d111,.(Possible_Percent),nrow)
+colnames(d111)[2] <- "NumAppear"
+d111$digitpercent = 1
+
+#convert percentstring2 to data frame
+m222 <- matrix(Percentstring2[[1]], ncol=1)
+d222 <- as.data.frame(m222, stringsAsFactors=FALSE)
+colnames(d222) <- "Possible_Percent"
+d222 = ddply(d222,.(Possible_Percent),nrow)
+colnames(d222)[2] <- "NumAppear2"
+d222$digit_percent = 1
+
+#convert percentstring3 to data frame
+m333 <- matrix(Percentstring3[[1]], ncol=1)
+d333 <- as.data.frame(m333, stringsAsFactors=FALSE)
+colnames(d333) <- "Possible_Percent"
+d333 = ddply(d333,.(Possible_Percent),nrow)
+colnames(d333)[2] <- "NumAppear3"
+d333$wordpercent = 1
+
+#convert percentstring4 to data frame
+m444 <- matrix(Percentstring4[[1]], ncol=1)
+d444 <- as.data.frame(m444, stringsAsFactors=FALSE)
+colnames(d444) <- "Possible_Percent"
+d444 = ddply(d444,.(Possible_Percent),nrow)
+colnames(d444)[2] <- "NumAppear4"
+d444$word_dash_wordpercent = 1
+
+#convert percentstring5 to data frame
+m555 <- matrix(Percentstring5[[1]], ncol=1)
+d555 <- as.data.frame(m555, stringsAsFactors=FALSE)
+colnames(d555) <- "Possible_Percent"
+d555 = ddply(d555,.(Possible_Percent),nrow)
+colnames(d555)[2] <- "NumAppear5"
+d555$decimal_wordpercent = 1
+
+#convert percentstring6 to data frame
+m666 <- matrix(Percentstring6[[1]], ncol=1)
+d666 <- as.data.frame(m666, stringsAsFactors=FALSE)
+colnames(d666) <- "Possible_Percent"
+d666 = ddply(d666,.(Possible_Percent),nrow)
+colnames(d666)[2] <- "NumAppear6"
+d666$decimalpercent = 1
+
+#convert percentstring7 to data frame
+m777 <- matrix(Percentstring7[[1]], ncol=1)
+d777 <- as.data.frame(m777, stringsAsFactors=FALSE)
+colnames(d777) <- "Possible_Percent"
+d777 = ddply(d777,.(Possible_Percent),nrow)
+colnames(d777)[2] <- "NumAppear7"
+d777$negativedecimalpercent = 1
+
+#convert percentstring8 to data frame
+m888 <- matrix(Percentstring8[[1]], ncol=1)
+d888 <- as.data.frame(m888, stringsAsFactors=FALSE)
+colnames(d888) <- "Possible_Percent"
+d888 = ddply(d888,.(Possible_Percent),nrow)
+colnames(d888)[2] <- "NumAppear8"
+d888$negative = 1
+
+#convert percentstring9 to data frame
+m999 <- matrix(Percentstring9[[1]], ncol=1)
+d999 <- as.data.frame(m999, stringsAsFactors=FALSE)
+colnames(d999) <- "Possible_Percent"
+d999 = ddply(d999,.(Possible_Percent),nrow)
+colnames(d999)[2] <- "NumAppear9"
+d999$digit_wordpercent = 1
+
+#convert percentstring9 to data frame
+m10 <- matrix(Percentstring10[[1]], ncol=1)
+d10 <- as.data.frame(m10, stringsAsFactors=FALSE)
+colnames(d10) <- "Possible_Percent"
+d10 = ddply(d10,.(Possible_Percent),nrow)
+colnames(d10)[2] <- "NumAppear10"
+d10$digitdecimal_wordpercent = 1
+
+#merge (outer join) d111 and d222
+PERCENT_FEATURES = merge(d111, d222, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2))
+
+#merge (outer join) d333
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d333, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3))
+
+#merge (outer join) d444
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d444, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4))
+
+#merge (outer join) d555
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d555, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent, decimal_wordpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4), NumAppear5 = sum(NumAppear5))
+
+#merge (outer join) d666
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d666, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent, decimal_wordpercent, decimalpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4), NumAppear5 = sum(NumAppear5), NumAppear6 = sum(NumAppear6))
+
+#merge (outer join) d777
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d777, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent, decimal_wordpercent, decimalpercent, negativedecimalpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4), NumAppear5 = sum(NumAppear5), NumAppear6 = sum(NumAppear6), NumAppear7 = sum(NumAppear7))
+
+#merge (outer join) d888
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d888, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent, decimal_wordpercent, decimalpercent, negativedecimalpercent, negative), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4), NumAppear5 = sum(NumAppear5), NumAppear6 = sum(NumAppear6), NumAppear7 = sum(NumAppear7), NumAppear8 = sum(NumAppear8))
+
+#merge (outer join) d999
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d999, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent, decimal_wordpercent, decimalpercent, negativedecimalpercent, negative, digit_wordpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4), NumAppear5 = sum(NumAppear5), NumAppear6 = sum(NumAppear6), NumAppear7 = sum(NumAppear7), NumAppear8 = sum(NumAppear8), NumAppear9 = sum(NumAppear9))
+
+#merge (outer join) d10
+PERCENT_FEATURES = merge(PERCENT_FEATURES, d10, by = "Possible_Percent", all = TRUE)
+PERCENT_FEATURES = ddply(PERCENT_FEATURES, .(Possible_Percent, digitpercent, digit_percent, wordpercent, word_dash_wordpercent, decimal_wordpercent, decimalpercent, negativedecimalpercent, negative, digit_wordpercent, digitdecimal_wordpercent), summarize, NumAppear = sum(NumAppear), NumAppear2 = sum(NumAppear2), NumAppear3 = sum(NumAppear3), NumAppear4 = sum(NumAppear4), NumAppear5 = sum(NumAppear5), NumAppear6 = sum(NumAppear6), NumAppear7 = sum(NumAppear7), NumAppear8 = sum(NumAppear8), NumAppear9 = sum(NumAppear9), NumAppear10 = sum(NumAppear10))
+
+
+#merge LABELS onto feature table
+colnames(percentages) <- "Possible_Percent"
+percentages$label = "Percent"
+PERCENT_FEATURES = merge(PERCENT_FEATURES, percentages, by = "Possible_Percent", all = TRUE)
+
+
+#make feature for Logistic Regression
+#make 1 counts of appearences into categorical variables
+PERCENT_FEATURES$NumAppear1_1 <- ifelse(PERCENT_FEATURES$NumAppear>=1, 1, 0)
+PERCENT_FEATURES$NumAppear1_5 <- ifelse(PERCENT_FEATURES$NumAppear>=5, 1, 0)
+PERCENT_FEATURES$NumAppear1_10 <- ifelse(PERCENT_FEATURES$NumAppear>=10, 1, 0)
+PERCENT_FEATURES$NumAppear1_25 <- ifelse(PERCENT_FEATURES$NumAppear>=25, 1, 0)
+PERCENT_FEATURES$NumAppear1_50 <- ifelse(PERCENT_FEATURES$NumAppear>=50, 1, 0)
+PERCENT_FEATURES$NumAppear1_100 <- ifelse(PERCENT_FEATURES$NumAppear>=100, 1, 0)
+PERCENT_FEATURES$NumAppear1_500 <- ifelse(PERCENT_FEATURES$NumAppear>=500, 1, 0)
+PERCENT_FEATURES$NumAppear1_1000 <- ifelse(PERCENT_FEATURES$NumAppear>=1000, 1, 0)
+
+PERCENT_FEATURES$NumAppear2_1 <- ifelse(PERCENT_FEATURES$NumAppear2>=1, 1, 0)
+
+PERCENT_FEATURES$NumAppear3_1 <- ifelse(PERCENT_FEATURES$NumAppear3>=1, 1, 0)
+PERCENT_FEATURES$NumAppear3_5 <- ifelse(PERCENT_FEATURES$NumAppear3>=5, 1, 0)
+PERCENT_FEATURES$NumAppear3_10 <- ifelse(PERCENT_FEATURES$NumAppear3>=10, 1, 0)
+PERCENT_FEATURES$NumAppear3_25 <- ifelse(PERCENT_FEATURES$NumAppear3>=25, 1, 0)
+PERCENT_FEATURES$NumAppear3_50 <- ifelse(PERCENT_FEATURES$NumAppear3>=50, 1, 0)
+
+PERCENT_FEATURES$NumAppear4_1 <- ifelse(PERCENT_FEATURES$NumAppear4>=1, 1, 0)
+PERCENT_FEATURES$NumAppear4_5 <- ifelse(PERCENT_FEATURES$NumAppear4>=5, 1, 0)
+PERCENT_FEATURES$NumAppear4_10 <- ifelse(PERCENT_FEATURES$NumAppear4>=10, 1, 0)
+
+PERCENT_FEATURES$NumAppear5_1 <- ifelse(PERCENT_FEATURES$NumAppear5>=1, 1, 0)
+PERCENT_FEATURES$NumAppear5_5 <- ifelse(PERCENT_FEATURES$NumAppear5>=5, 1, 0)
+PERCENT_FEATURES$NumAppear5_10 <- ifelse(PERCENT_FEATURES$NumAppear5>=10, 1, 0)
+PERCENT_FEATURES$NumAppear5_25 <- ifelse(PERCENT_FEATURES$NumAppear5>=25, 1, 0)
+PERCENT_FEATURES$NumAppear5_50 <- ifelse(PERCENT_FEATURES$NumAppear5>=50, 1, 0)
+PERCENT_FEATURES$NumAppear5_100 <- ifelse(PERCENT_FEATURES$NumAppear5>=100, 1, 0)
+
+PERCENT_FEATURES$NumAppear6_1 <- ifelse(PERCENT_FEATURES$NumAppear6>=1, 1, 0)
+PERCENT_FEATURES$NumAppear6_5 <- ifelse(PERCENT_FEATURES$NumAppear6>=5, 1, 0)
+PERCENT_FEATURES$NumAppear6_10 <- ifelse(PERCENT_FEATURES$NumAppear6>=10, 1, 0)
+PERCENT_FEATURES$NumAppear6_25 <- ifelse(PERCENT_FEATURES$NumAppear6>=25, 1, 0)
+PERCENT_FEATURES$NumAppear6_50 <- ifelse(PERCENT_FEATURES$NumAppear6>=50, 1, 0)
+PERCENT_FEATURES$NumAppear6_100 <- ifelse(PERCENT_FEATURES$NumAppear6>=100, 1, 0)
+PERCENT_FEATURES$NumAppear6_500 <- ifelse(PERCENT_FEATURES$NumAppear6>=500, 1, 0)
+
+PERCENT_FEATURES$NumAppear7_1 <- ifelse(PERCENT_FEATURES$NumAppear7>=1, 1, 0)
+PERCENT_FEATURES$NumAppear7_5 <- ifelse(PERCENT_FEATURES$NumAppear7>=5, 1, 0)
+PERCENT_FEATURES$NumAppear7_10 <- ifelse(PERCENT_FEATURES$NumAppear7>=10, 1, 0)
+PERCENT_FEATURES$NumAppear7_25 <- ifelse(PERCENT_FEATURES$NumAppear7>=25, 1, 0)
+PERCENT_FEATURES$NumAppear7_50 <- ifelse(PERCENT_FEATURES$NumAppear7>=50, 1, 0)
+
+PERCENT_FEATURES$NumAppear8_1 <- ifelse(PERCENT_FEATURES$NumAppear8>=1, 1, 0)
+PERCENT_FEATURES$NumAppear8_5 <- ifelse(PERCENT_FEATURES$NumAppear8>=5, 1, 0)
+PERCENT_FEATURES$NumAppear8_10 <- ifelse(PERCENT_FEATURES$NumAppear8>=10, 1, 0)
+
+PERCENT_FEATURES$NumAppear9_1 <- ifelse(PERCENT_FEATURES$NumAppear9>=1, 1, 0)
+PERCENT_FEATURES$NumAppear9_5 <- ifelse(PERCENT_FEATURES$NumAppear9>=5, 1, 0)
+PERCENT_FEATURES$NumAppear9_10 <- ifelse(PERCENT_FEATURES$NumAppear9>=10, 1, 0)
+PERCENT_FEATURES$NumAppear9_25 <- ifelse(PERCENT_FEATURES$NumAppear9>=25, 1, 0)
+PERCENT_FEATURES$NumAppear9_50 <- ifelse(PERCENT_FEATURES$NumAppear9>=50, 1, 0)
+PERCENT_FEATURES$NumAppear9_100 <- ifelse(PERCENT_FEATURES$NumAppear9>=100, 1, 0)
+PERCENT_FEATURES$NumAppear9_500 <- ifelse(PERCENT_FEATURES$NumAppear9>=500, 1, 0)
+PERCENT_FEATURES$NumAppear9_1000 <- ifelse(PERCENT_FEATURES$NumAppear9>=1000, 1, 0)
+
+PERCENT_FEATURES$NumAppear10_1 <- ifelse(PERCENT_FEATURES$NumAppear10>=1, 1, 0)
+PERCENT_FEATURES$NumAppear10_5 <- ifelse(PERCENT_FEATURES$NumAppear10>=5, 1, 0)
+PERCENT_FEATURES$NumAppear10_10 <- ifelse(PERCENT_FEATURES$NumAppear10>=10, 1, 0)
+PERCENT_FEATURES$NumAppear10_25 <- ifelse(PERCENT_FEATURES$NumAppear10>=25, 1, 0)
+PERCENT_FEATURES$NumAppear10_50 <- ifelse(PERCENT_FEATURES$NumAppear10>=50, 1, 0)
+PERCENT_FEATURES$NumAppear10_100 <- ifelse(PERCENT_FEATURES$NumAppear10>=100, 1, 0)
+
+#drop count columns (not useable for Logistic Regression)
+PERCENT_FEATURES <- PERCENT_FEATURES[ -c(12:21) ]
+
+#LOGISTIC REGRESSION!!!!
+PERCENT_FEATURES[is.na(PERCENT_FEATURES)] <- 0
+
+PercentInd <- rep("No",6266)
+PercentInd[PERCENT_FEATURES$label == "Percent"] <- "Yes"
+PercentInd = as.factor(PercentInd)
+PERCENT_FEATURES$label = PercentInd
+
+fit.Percent = glm(label ~ .-Possible_Percent, data = PERCENT_FEATURES, family = binomial)
+summary(fit.Percent)
+
+Percent.probs = predict(fit.Percent, type = "response")
+hist(Percent.probs)
+
+#select cutoff based on performance (number of correct "Yes") and accuracy
+Percent.predict = rep("No", 6266)
+Percent.predict[Percent.probs > 0.3] = "Yes"
+table(Percent.predict, PERCENT_FEATURES$label)
+mean(Percent.predict == PERCENT_FEATURES$label) #80.2% accurate
+
+PERCENT_FEATURES$prediction = Percent.predict
+finalPercentages = PERCENT_FEATURES[!(PERCENT_FEATURES$prediction == "No"),]
+finalPercentages = finalPercentages$Possible_Percent
+finalPercentages <- as.data.frame(finalPercentages)
+
+```
+
+```{r}
+write.csv(finalCEOs, file = "FinalCEOS.csv")
+write.csv(finalCompanies, file = "FinalCompanies.csv")
+write.csv(finalPercentages, file = "FinalPercentages.csv")
+
+```
+
+
